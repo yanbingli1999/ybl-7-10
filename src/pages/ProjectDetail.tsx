@@ -3,12 +3,12 @@ import { useParams, useNavigate } from 'react-router-dom';
 import {
   ArrowLeft, Plus, Trash2, Play, RefreshCw, BarChart3, AlertTriangle,
   TrendingUp, Target, Layers, History, GitCompare, Pencil, X, Save,
-  Clock, DollarSign, Calendar, Settings, Info, Sparkles,
+  Clock, DollarSign, Calendar, Settings, Info, Shield, Swords,
 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { useAppStore } from '@/store/useAppStore';
-import { formatNumber, formatPercentage } from '../../shared/monteCarlo.js';
-import type { VariableType, CreateVariableDto, UpdateVariableDto, SimulationResult } from '../../shared/types.js';
+import { formatNumber, formatPercentage, getRiskLevel } from '../../shared/monteCarlo.js';
+import type { VariableType, CreateVariableDto, UpdateVariableDto, SimulationResult, RiskPreference } from '../../shared/types.js';
 import HistogramChart from '@/components/HistogramChart';
 import SensitivityChart from '@/components/SensitivityChart';
 import StatsCards from '@/components/StatsCards';
@@ -22,10 +22,16 @@ const VARIABLE_TYPE_CONFIG: Record<VariableType, { label: string; color: string;
   custom: { label: '自定义', color: 'bg-indigo-500/20 text-indigo-300 border-indigo-500/40', icon: Settings, defaultWeight: 1, defaultUnit: '' },
 };
 
+const RISK_PREFERENCE_CONFIG: Record<RiskPreference, { label: string; desc: string; color: string; activeColor: string; icon: any }> = {
+  conservative: { label: '保守', desc: '关注尾部亏损，严格下行控制', color: 'text-blue-300 border-blue-500/40 bg-blue-500/10', activeColor: 'bg-blue-500/20 border-blue-500/60 text-blue-200 shadow-[0_0_12px_rgba(59,130,246,0.25)]', icon: Shield },
+  balanced: { label: '均衡', desc: '综合考量风险与收益', color: 'text-amber-300 border-amber-500/40 bg-amber-500/10', activeColor: 'bg-amber-500/20 border-amber-500/60 text-amber-200 shadow-[0_0_12px_rgba(245,158,11,0.25)]', icon: Target },
+  aggressive: { label: '进取', desc: '关注均值和上行空间', color: 'text-rose-300 border-rose-500/40 bg-rose-500/10', activeColor: 'bg-rose-500/20 border-rose-500/60 text-rose-200 shadow-[0_0_12px_rgba(244,63,94,0.25)]', icon: Swords },
+};
+
 export default function ProjectDetail() {
   const { id = '' } = useParams();
   const navigate = useNavigate();
-  const { currentProject, simulations, currentSimulation, setCurrentProject, setSimulations, addVariable, updateVariable, removeVariable, addSimulation, removeSimulation, setCurrentSimulation, setLoading, setError } = useAppStore();
+  const { currentProject, simulations, currentSimulation, setCurrentProject, setSimulations, addVariable, updateVariable, removeVariable, addSimulation, removeSimulation, setCurrentSimulation, setLoading, setError, setRiskPreference } = useAppStore();
 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [showVarModal, setShowVarModal] = useState(false);
@@ -160,13 +166,19 @@ export default function ProjectDetail() {
   };
 
   const riskLevel = useMemo(() => {
-    if (!currentSimulation) return null;
-    const p = currentSimulation.lossProbability;
-    if (p < 0.1) return { level: '低风险', color: 'text-monte-safe', bg: 'bg-monte-safe/15', border: 'border-monte-safe/40', icon: Sparkles };
-    if (p < 0.3) return { level: '中低风险', color: 'text-emerald-300', bg: 'bg-emerald-500/15', border: 'border-emerald-500/40', icon: Info };
-    if (p < 0.5) return { level: '中等风险', color: 'text-monte-warn', bg: 'bg-monte-warn/15', border: 'border-monte-warn/40', icon: AlertTriangle };
-    return { level: '高风险', color: 'text-monte-danger', bg: 'bg-monte-danger/15', border: 'border-monte-danger/40', icon: AlertTriangle };
-  }, [currentSimulation]);
+    if (!currentSimulation || !currentProject) return null;
+    return getRiskLevel(currentSimulation, currentProject.riskPreference || 'balanced');
+  }, [currentSimulation, currentProject]);
+
+  const handleRiskPreferenceChange = async (pref: RiskPreference) => {
+    if (!currentProject) return;
+    setRiskPreference(pref);
+    try {
+      await api.projects.update(id, { riskPreference: pref });
+    } catch (err) {
+      console.error('更新风险偏好失败', err);
+    }
+  };
 
   if (!currentProject) {
     return <div className="flex items-center justify-center h-screen"><div className="text-monte-muted">加载中...</div></div>;
@@ -190,6 +202,25 @@ export default function ProjectDetail() {
               </div>
             </div>
             <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1.5 mr-2">
+                {(Object.entries(RISK_PREFERENCE_CONFIG) as [RiskPreference, typeof RISK_PREFERENCE_CONFIG[RiskPreference]][]).map(([key, cfg]) => {
+                  const Icon = cfg.icon;
+                  const isActive = (currentProject.riskPreference || 'balanced') === key;
+                  return (
+                    <button
+                      key={key}
+                      onClick={() => handleRiskPreferenceChange(key)}
+                      className={`px-2.5 py-1.5 rounded-lg text-xs font-medium border transition-all flex items-center gap-1.5 ${
+                        isActive ? cfg.activeColor : cfg.color + ' opacity-60 hover:opacity-90'
+                      }`}
+                      title={cfg.desc}
+                    >
+                      <Icon className="w-3.5 h-3.5" />
+                      {cfg.label}
+                    </button>
+                  );
+                })}
+              </div>
               <button onClick={() => setShowCompareModal(true)} className="btn-secondary text-sm" disabled={simulations.length < 2}>
                 <GitCompare className="w-4 h-4" />
                 对比
@@ -329,6 +360,33 @@ export default function ProjectDetail() {
                 模拟控制
               </h2>
               <div className="space-y-5">
+                <div>
+                  <label className="label flex items-center gap-2">
+                    <Shield className="w-4 h-4 text-monte-accent" />
+                    风险偏好
+                  </label>
+                  <div className="grid grid-cols-3 gap-2 mt-1">
+                    {(Object.entries(RISK_PREFERENCE_CONFIG) as [RiskPreference, typeof RISK_PREFERENCE_CONFIG[RiskPreference]][]).map(([key, cfg]) => {
+                      const Icon = cfg.icon;
+                      const isActive = (currentProject.riskPreference || 'balanced') === key;
+                      return (
+                        <button
+                          key={key}
+                          onClick={() => handleRiskPreferenceChange(key)}
+                          className={`p-3 rounded-xl border text-left transition-all ${
+                            isActive ? cfg.activeColor : 'border-monte-border bg-monte-bg/40 hover:bg-monte-bg/70'
+                          }`}
+                        >
+                          <div className="flex items-center gap-1.5 mb-1">
+                            <Icon className="w-4 h-4" />
+                            <span className="text-sm font-semibold">{cfg.label}</span>
+                          </div>
+                          <div className="text-[10px] text-monte-muted leading-tight">{cfg.desc}</div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className="label">模拟次数</label>
@@ -446,7 +504,7 @@ export default function ProjectDetail() {
                   <div className="flex items-center justify-between mb-5">
                     <div className="flex items-center gap-3">
                       <div className={`p-2.5 rounded-xl ${riskLevel?.bg}`}>
-                        {riskLevel?.icon && <riskLevel.icon className={`w-6 h-6 ${riskLevel.color}`} />}
+                        <AlertTriangle className={`w-6 h-6 ${riskLevel?.color}`} />
                       </div>
                       <div>
                         <div className="text-sm text-monte-muted mb-0.5">当前风险评估</div>
@@ -484,6 +542,26 @@ export default function ProjectDetail() {
                   </div>
 
                   <StatsCards sim={currentSimulation} />
+
+                  {riskLevel && (
+                    <div className="mt-5 p-4 rounded-xl bg-monte-bg/60 border border-monte-border/60">
+                      <div className="flex items-start gap-3">
+                        <div className={`px-2 py-0.5 rounded text-xs font-semibold border flex-shrink-0 mt-0.5 ${
+                          RISK_PREFERENCE_CONFIG[currentProject.riskPreference || 'balanced'].activeColor
+                        }`}>
+                          {RISK_PREFERENCE_CONFIG[currentProject.riskPreference || 'balanced'].label}视角
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="text-xs text-monte-muted mb-1.5">
+                            重点关注：{riskLevel.focusMetrics.join(' · ')}
+                          </div>
+                          <p className="text-sm text-monte-muted/90 leading-relaxed">
+                            {riskLevel.explanation}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 <HistogramChart sim={currentSimulation} />

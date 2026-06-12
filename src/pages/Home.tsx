@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Plus, Trash2, Play, FolderKanban, Activity, Calendar, X } from 'lucide-react';
+import { Plus, Trash2, Play, FolderKanban, Activity, Calendar, X, Shield, Swords } from 'lucide-react';
 import { api } from '@/lib/api';
 import { useAppStore } from '@/store/useAppStore';
-import type { Project } from '../../shared/types.js';
+import type { Project, RiskPreference } from '../../shared/types.js';
 
 type ProjectListItem = Project & {
   variableCount: number;
@@ -17,6 +17,7 @@ export default function Home() {
   const [showModal, setShowModal] = useState(false);
   const [newName, setNewName] = useState('');
   const [newDesc, setNewDesc] = useState('');
+  const [newRiskPreference, setNewRiskPreference] = useState<RiskPreference>('balanced');
   const [submitting, setSubmitting] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
@@ -41,10 +42,11 @@ export default function Home() {
     if (!newName.trim()) return;
     setSubmitting(true);
     try {
-      const created = await api.projects.create({ name: newName.trim(), description: newDesc.trim() });
+      const created = await api.projects.create({ name: newName.trim(), description: newDesc.trim(), riskPreference: newRiskPreference });
       setShowModal(false);
       setNewName('');
       setNewDesc('');
+      setNewRiskPreference('balanced');
       navigate(`/project/${created.id}`);
     } catch (err) {
       alert(err instanceof Error ? err.message : '创建失败');
@@ -149,6 +151,18 @@ export default function Home() {
                   <div className="flex-1 min-w-0">
                     <h3 className="text-lg font-semibold text-white mb-1 truncate group-hover:text-monte-accent transition-colors">{p.name}</h3>
                     <p className="text-sm text-monte-muted line-clamp-2 min-h-[40px]">{p.description || '暂无描述'}</p>
+                    <div className="mt-1.5">
+                      <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium border ${
+                        (p.riskPreference || 'balanced') === 'conservative' ? 'text-blue-300 border-blue-500/40 bg-blue-500/10' :
+                        (p.riskPreference || 'balanced') === 'aggressive' ? 'text-rose-300 border-rose-500/40 bg-rose-500/10' :
+                        'text-amber-300 border-amber-500/40 bg-amber-500/10'
+                      }`}>
+                        {(p.riskPreference || 'balanced') === 'conservative' && <Shield className="w-3 h-3" />}
+                        {(p.riskPreference || 'balanced') === 'aggressive' && <Swords className="w-3 h-3" />}
+                        {(p.riskPreference || 'balanced') === 'balanced' && <Activity className="w-3 h-3" />}
+                        {(p.riskPreference || 'balanced') === 'conservative' ? '保守' : (p.riskPreference || 'balanced') === 'aggressive' ? '进取' : '均衡'}
+                      </span>
+                    </div>
                   </div>
                   <button
                     onClick={(e) => handleDelete(p.id, e)}
@@ -231,6 +245,28 @@ export default function Home() {
                   rows={3}
                   className="input resize-none"
                 />
+              </div>
+              <div>
+                <label className="label">风险偏好</label>
+                <div className="grid grid-cols-3 gap-2">
+                  {([
+                    { key: 'conservative' as RiskPreference, label: '保守', desc: '关注尾部亏损', color: 'border-blue-500/40 bg-blue-500/10 text-blue-300', activeColor: 'bg-blue-500/20 border-blue-500/60 text-blue-200' },
+                    { key: 'balanced' as RiskPreference, label: '均衡', desc: '综合风险收益', color: 'border-amber-500/40 bg-amber-500/10 text-amber-300', activeColor: 'bg-amber-500/20 border-amber-500/60 text-amber-200' },
+                    { key: 'aggressive' as RiskPreference, label: '进取', desc: '关注上行空间', color: 'border-rose-500/40 bg-rose-500/10 text-rose-300', activeColor: 'bg-rose-500/20 border-rose-500/60 text-rose-200' },
+                  ]).map(opt => (
+                    <button
+                      key={opt.key}
+                      type="button"
+                      onClick={() => setNewRiskPreference(opt.key)}
+                      className={`p-2.5 rounded-lg border text-center transition-all ${
+                        newRiskPreference === opt.key ? opt.activeColor : opt.color + ' opacity-50 hover:opacity-80'
+                      }`}
+                    >
+                      <div className="text-sm font-semibold">{opt.label}</div>
+                      <div className="text-[10px] text-monte-muted">{opt.desc}</div>
+                    </button>
+                  ))}
+                </div>
               </div>
               <div className="flex gap-3 pt-2">
                 <button type="button" onClick={() => setShowModal(false)} className="btn-secondary flex-1">

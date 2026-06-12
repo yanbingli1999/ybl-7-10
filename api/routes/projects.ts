@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import { createStore } from '../storage/fileStore.js';
-import type { Project, Variable, ProjectWithVariables, CreateProjectDto, UpdateProjectDto, CreateVariableDto } from '../../shared/types.js';
+import type { Project, Variable, ProjectWithVariables, CreateProjectDto, UpdateProjectDto, CreateVariableDto, RiskPreference } from '../../shared/types.js';
 
 const router = Router();
 const projectsStore = createStore<Project>('projects');
@@ -55,6 +55,7 @@ router.post('/', (req: Request, res: Response) => {
     id: uuidv4(),
     name: dto.name.trim(),
     description: dto.description?.trim() || '',
+    riskPreference: dto.riskPreference || 'balanced',
     createdAt: now,
     updatedAt: now,
   };
@@ -81,6 +82,14 @@ router.put('/:id', (req: Request, res: Response) => {
   }
   if (dto.description !== undefined) {
     updates.description = dto.description.trim();
+  }
+  if (dto.riskPreference !== undefined) {
+    const valid: RiskPreference[] = ['conservative', 'balanced', 'aggressive'];
+    if (!valid.includes(dto.riskPreference)) {
+      res.status(400).json({ error: '无效的风险偏好值' });
+      return;
+    }
+    updates.riskPreference = dto.riskPreference;
   }
 
   const updated = projectsStore.update(req.params.id, updates);

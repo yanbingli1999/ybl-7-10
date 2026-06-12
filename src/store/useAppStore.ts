@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { Project, ProjectWithVariables, Variable, SimulationResult } from '../../shared/types.js';
+import type { Project, ProjectWithVariables, Variable, SimulationResult, RiskPreference } from '../../shared/types.js';
 
 interface AppState {
   projects: Array<Project & { variableCount: number; simulationCount: number; lastSimulationAt: string | null }>;
@@ -12,6 +12,7 @@ interface AppState {
   setError: (v: string | null) => void;
   setProjects: (p: AppState['projects']) => void;
   setCurrentProject: (p: ProjectWithVariables | null) => void;
+  setRiskPreference: (v: RiskPreference) => void;
   addVariable: (v: Variable) => void;
   updateVariable: (v: Variable) => void;
   removeVariable: (id: string) => void;
@@ -32,6 +33,10 @@ export const useAppStore = create<AppState>((set) => ({
   setError: (v) => set({ error: v }),
   setProjects: (p) => set({ projects: p }),
   setCurrentProject: (p) => set({ currentProject: p, currentSimulation: null, simulations: [] }),
+  setRiskPreference: (v) =>
+    set((s) => ({
+      currentProject: s.currentProject ? { ...s.currentProject, riskPreference: v } : null,
+    })),
   addVariable: (v) =>
     set((s) => ({
       currentProject: s.currentProject ? { ...s.currentProject, variables: [...s.currentProject.variables, v] } : null,

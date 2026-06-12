@@ -1,4 +1,5 @@
 export type VariableType = 'cost' | 'duration' | 'revenue' | 'custom';
+export type RiskPreference = 'conservative' | 'balanced' | 'aggressive';
 
 export interface Variable {
   id: string;
@@ -17,6 +18,7 @@ export interface Project {
   id: string;
   name: string;
   description: string;
+  riskPreference: RiskPreference;
   createdAt: string;
   updatedAt: string;
 }
@@ -82,11 +84,13 @@ export interface CompareRecord {
 export interface CreateProjectDto {
   name: string;
   description: string;
+  riskPreference?: RiskPreference;
 }
 
 export interface UpdateProjectDto {
   name?: string;
   description?: string;
+  riskPreference?: RiskPreference;
 }
 
 export interface CreateVariableDto {

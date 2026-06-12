@@ -1,4 +1,4 @@
-import type { Variable, SimulationResult, Percentiles, Histogram, HistogramBin, SensitivityItem } from './types';
+import type { Variable, SimulationResult, Percentiles, Histogram, HistogramBin, SensitivityItem, RiskPreference } from './types';
 import { v4 as uuidv4 } from 'uuid';
 
 export function sampleTriangular(min: number, mostLikely: number, max: number): number {
@@ -227,4 +227,144 @@ export function formatPercentage(num: number, decimals = 2): string {
     minimumFractionDigits: decimals,
     maximumFractionDigits: decimals,
   }) + '%';
+}
+
+export interface RiskLevelResult {
+  level: string;
+  color: string;
+  bg: string;
+  border: string;
+  focusMetrics: string[];
+  explanation: string;
+}
+
+export function getRiskLevel(
+  sim: SimulationResult,
+  preference: RiskPreference = 'balanced'
+): RiskLevelResult {
+  const { lossProbability, var95, mean, stdDev, percentiles } = sim;
+  const cv = mean !== 0 ? stdDev / Math.abs(mean) : Infinity;
+  const tailLoss = Math.abs(var95);
+  const upsideRatio = mean > 0 ? percentiles.p95 / mean : 0;
+
+  if (preference === 'conservative') {
+    if (lossProbability >= 0.2 || tailLoss > Math.abs(mean) * 1.5) {
+      return {
+        level: '高风险',
+        color: 'text-monte-danger',
+        bg: 'bg-monte-danger/15',
+        border: 'border-monte-danger/40',
+        focusMetrics: ['亏损概率', '95% VaR', '尾部亏损'],
+        explanation: `保守视角下，该项目尾部风险显著：亏损概率达 ${formatPercentage(lossProbability)}，最坏5%情景下亏损达 ${formatNumber(var95)}，尾部亏损已超过均值的1.5倍。建议严格控制下行风险，设置止损策略。`,
+      };
+    }
+    if (lossProbability >= 0.1 || tailLoss > Math.abs(mean)) {
+      return {
+        level: '中高风险',
+        color: 'text-monte-warn',
+        bg: 'bg-monte-warn/15',
+        border: 'border-monte-warn/40',
+        focusMetrics: ['亏损概率', '95% VaR'],
+        explanation: `保守视角下，该项目存在不可忽视的下行风险：亏损概率 ${formatPercentage(lossProbability)}，95% VaR 为 ${formatNumber(var95)}。尾部亏损接近均值水平，需要制定风险缓释方案。`,
+      };
+    }
+    if (lossProbability >= 0.05) {
+      return {
+        level: '中等风险',
+        color: 'text-emerald-300',
+        bg: 'bg-emerald-500/15',
+        border: 'border-emerald-500/40',
+        focusMetrics: ['亏损概率', '95% VaR'],
+        explanation: `保守视角下，该项目尾部风险可控：亏损概率 ${formatPercentage(lossProbability)}，95% VaR 为 ${formatNumber(var95)}。下行空间有限但仍需关注极端情景。`,
+      };
+    }
+    return {
+      level: '低风险',
+      color: 'text-monte-safe',
+      bg: 'bg-monte-safe/15',
+      border: 'border-monte-safe/40',
+      focusMetrics: ['95% VaR', '尾部稳定性'],
+      explanation: `保守视角下，该项目尾部风险极低：亏损概率仅 ${formatPercentage(lossProbability)}，95% VaR 为 ${formatNumber(var95)}。即使极端情景下结果仍然稳健。`,
+    };
+  }
+
+  if (preference === 'aggressive') {
+    if (mean < 0 && lossProbability > 0.5) {
+      return {
+        level: '高风险',
+        color: 'text-monte-danger',
+        bg: 'bg-monte-danger/15',
+        border: 'border-monte-danger/40',
+        focusMetrics: ['期望均值', '上行空间'],
+        explanation: `进取视角下，该项目均值 ${formatNumber(mean)} 为负，不具备上行价值。即使关注增长潜力，负期望项目也不应参与。`,
+      };
+    }
+    if (lossProbability > 0.5 || (mean > 0 && cv > 1.0)) {
+      return {
+        level: '中高风险',
+        color: 'text-monte-warn',
+        bg: 'bg-monte-warn/15',
+        border: 'border-monte-warn/40',
+        focusMetrics: ['期望均值', '变异系数', '上行空间'],
+        explanation: `进取视角下，该项目波动较大（变异系数 ${formatPercentage(cv / 100)}），但均值 ${formatNumber(mean)} 为正，上行空间到 ${formatNumber(percentiles.p95)}。高波动意味着高机会，需评估上行空间是否值得承担风险。`,
+      };
+    }
+    if (mean > 0 && cv > 0.5) {
+      return {
+        level: '中等风险',
+        color: 'text-emerald-300',
+        bg: 'bg-emerald-500/15',
+        border: 'border-emerald-500/40',
+        focusMetrics: ['期望均值', '上行空间', '变异系数'],
+        explanation: `进取视角下，该项目具有正向期望 ${formatNumber(mean)}，上行空间可达 ${formatNumber(percentiles.p95)}（上行比率 ${formatNumber(upsideRatio, 2)}x）。波动带来机会，适合寻求增长的投资者。`,
+      };
+    }
+    return {
+      level: '低风险',
+      color: 'text-monte-safe',
+      bg: 'bg-monte-safe/15',
+      border: 'border-monte-safe/40',
+      focusMetrics: ['期望均值', '上行确定性'],
+      explanation: `进取视角下，该项目期望稳定 ${formatNumber(mean)}，波动小、确定性高。上行空间 ${formatNumber(percentiles.p95)} 虽然有限，但正回报几乎确定，适合稳健进取型配置。`,
+    };
+  }
+
+  if (lossProbability < 0.1) {
+    return {
+      level: '低风险',
+      color: 'text-monte-safe',
+      bg: 'bg-monte-safe/15',
+      border: 'border-monte-safe/40',
+      focusMetrics: ['亏损概率', '期望均值'],
+      explanation: `均衡视角下，该项目风险较低：亏损概率 ${formatPercentage(lossProbability)}，期望值 ${formatNumber(mean)}。综合下行风险与上行收益，项目整体表现稳健。`,
+    };
+  }
+  if (lossProbability < 0.3) {
+    return {
+      level: '中低风险',
+      color: 'text-emerald-300',
+      bg: 'bg-emerald-500/15',
+      border: 'border-emerald-500/40',
+      focusMetrics: ['亏损概率', '期望均值', '95% VaR'],
+      explanation: `均衡视角下，该项目风险适中偏低：亏损概率 ${formatPercentage(lossProbability)}，期望值 ${formatNumber(mean)}，95% VaR 为 ${formatNumber(var95)}。需关注但不必过度担忧。`,
+    };
+  }
+  if (lossProbability < 0.5) {
+    return {
+      level: '中等风险',
+      color: 'text-monte-warn',
+      bg: 'bg-monte-warn/15',
+      border: 'border-monte-warn/40',
+      focusMetrics: ['亏损概率', '期望均值', '95% VaR'],
+      explanation: `均衡视角下，该项目风险处于中等水平：亏损概率 ${formatPercentage(lossProbability)}，期望值 ${formatNumber(mean)}。风险与收益并存，需综合评估。`,
+    };
+  }
+  return {
+    level: '高风险',
+    color: 'text-monte-danger',
+    bg: 'bg-monte-danger/15',
+    border: 'border-monte-danger/40',
+    focusMetrics: ['亏损概率', '95% VaR', '期望均值'],
+    explanation: `均衡视角下，该项目风险显著：亏损概率达 ${formatPercentage(lossProbability)}，95% VaR 为 ${formatNumber(var95)}，期望值 ${formatNumber(mean)}。下行风险突出，需慎重决策。`,
+  };
 }
