@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import {
-  ArrowLeft, GitCompare, BarChart3, TrendingDown, TrendingUp, Minus, AlertCircle,
+  ArrowLeft, GitCompare, BarChart3, TrendingDown, TrendingUp, Minus, AlertCircle, AlertTriangle, Shield, Swords, Target,
 } from 'lucide-react';
 import { api } from '@/lib/api';
-import type { CompareRecord, SimulationResult } from '../../shared/types.js';
-import { formatNumber, formatPercentage } from '../../shared/monteCarlo.js';
+import type { CompareRecord, SimulationResult, ProjectWithVariables, RiskPreference } from '../../shared/types.js';
+import { formatNumber, formatPercentage, getRiskLevel } from '../../shared/monteCarlo.js';
 import HistogramChart from '@/components/HistogramChart';
 import StatsCards from '@/components/StatsCards';
 
@@ -13,16 +13,27 @@ interface CompareDetail extends CompareRecord {
   simulations: SimulationResult[];
 }
 
+const RISK_PREFERENCE_CONFIG: Record<RiskPreference, { label: string; desc: string; color: string; activeColor: string; icon: any }> = {
+  conservative: { label: '保守', desc: '关注尾部亏损', color: 'text-blue-300 border-blue-500/40 bg-blue-500/10', activeColor: 'bg-blue-500/20 border-blue-500/60 text-blue-200 shadow-[0_0_12px_rgba(59,130,246,0.25)]', icon: Shield },
+  balanced: { label: '均衡', desc: '综合风险与收益', color: 'text-amber-300 border-amber-500/40 bg-amber-500/10', activeColor: 'bg-amber-500/20 border-amber-500/60 text-amber-200 shadow-[0_0_12px_rgba(245,158,11,0.25)]', icon: Target },
+  aggressive: { label: '进取', desc: '关注均值与上行', color: 'text-rose-300 border-rose-500/40 bg-rose-500/10', activeColor: 'bg-rose-500/20 border-rose-500/60 text-rose-200 shadow-[0_0_12px_rgba(244,63,94,0.25)]', icon: Swords },
+};
+
 export default function ComparePage() {
   const { id = '', compareId = '' } = useParams();
   const navigate = useNavigate();
   const [data, setData] = useState<CompareDetail | null>(null);
+  const [project, setProject] = useState<ProjectWithVariables | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const load = async () => {
       try {
-        const d = await api.compare.get(compareId);
+        const [p, d] = await Promise.all([
+          api.projects.get(id),
+          api.compare.get(compareId),
+        ]);
+        setProject(p);
         setData(d as CompareDetail);
       } catch (err) {
         alert(err instanceof Error ? err.message : '加载失败');
@@ -32,7 +43,19 @@ export default function ComparePage() {
       }
     };
     load();
-  }, [compareId, id]);
+  }, [compareId, id, navigate]);
+
+  const preference: RiskPreference = (project?.riskPreference || 'balanced') as RiskPreference;
+
+  const handleRiskPreferenceChange = async (pref: RiskPreference) => {
+    if (!project) return;
+    setProject({ ...project, riskPreference: pref });
+    try {
+      await api.projects.update(id, { riskPreference: pref });
+    } catch (err) {
+      console.error('更新风险偏好失败', err);
+    }
+  };
 
   if (loading || !data) {
     return <div className="flex items-center justify-center h-screen"><div className="text-monte-muted">加载中...</div></div>;
@@ -73,6 +96,25 @@ export default function ComparePage() {
                   <span className="text-xs text-monte-muted uppercase tracking-wider font-semibold">对比分析视图</span>
                 </div>
                 <h1 className="text-xl font-bold text-white truncate">{data.name}</h1>
+                <div className="flex items-center gap-1.5 mt-2">
+                  {(Object.entries(RISK_PREFERENCE_CONFIG) as [RiskPreference, typeof RISK_PREFERENCE_CONFIG[RiskPreference]][]).map(([key, cfg]) => {
+                    const Icon = cfg.icon;
+                    const isActive = preference === key;
+                    return (
+                      <button
+                        key={key}
+                        onClick={() => handleRiskPreferenceChange(key)}
+                        className={`px-2 py-0.5 rounded text-[11px] font-medium border transition-all flex items-center gap-1 ${
+                          isActive ? cfg.activeColor : cfg.color + ' opacity-55 hover:opacity-90'
+                        }`}
+                        title={cfg.desc}
+                      >
+                        <Icon className="w-3 h-3" />
+                        {cfg.label}
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
             </div>
             <div className="flex items-center gap-2 text-sm">
@@ -278,18 +320,40 @@ export default function ComparePage() {
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {sims.map((s, i) => (
-            <div key={s.id} className="space-y-4">
-              <div className="card border-monte-accent/30">
-                <div className="flex items-center gap-2 mb-3">
-                  <span className="badge bg-monte-accent/20 text-monte-accent border border-monte-accent/30 font-bold">#{i + 1}</span>
-                  <h3 className="text-base font-semibold text-white truncate">{s.runName}</h3>
+          {sims.map((s, i) => {
+            const risk = getRiskLevel(s, preference);
+            return (
+              <div key={s.id} className="space-y-4">
+                <div className={`card border-2 ${risk.border}`}>
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center gap-2">
+                      <span className="badge bg-monte-accent/20 text-monte-accent border border-monte-accent/30 font-bold">#{i + 1}</span>
+                      <h3 className="text-base font-semibold text-white truncate">{s.runName}</h3>
+                    </div>
+                    <div className={`flex items-center gap-1.5 px-2 py-0.5 rounded-lg border ${risk.bg} ${risk.color} ${risk.border}`}>
+                      <AlertTriangle className="w-3.5 h-3.5" />
+                      <span className="text-xs font-bold">{risk.level}</span>
+                    </div>
+                  </div>
+                  <StatsCards sim={s} />
+                  <div className="mt-4 p-3 rounded-xl bg-monte-bg/60 border border-monte-border/60">
+                    <div className="flex items-start gap-2.5">
+                      <div className={`px-2 py-0.5 rounded text-[10px] font-semibold border flex-shrink-0 mt-0.5 ${RISK_PREFERENCE_CONFIG[preference].activeColor}`}>
+                        {RISK_PREFERENCE_CONFIG[preference].label}视角
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="text-[11px] text-monte-muted mb-1">
+                          重点关注：{risk.focusMetrics.join(' · ')}
+                        </div>
+                        <p className="text-xs text-monte-muted/90 leading-relaxed">{risk.explanation}</p>
+                      </div>
+                    </div>
+                  </div>
                 </div>
-                <StatsCards sim={s} />
+                <HistogramChart sim={s} colorIndex={i} showTitle={false} />
               </div>
-              <HistogramChart sim={s} colorIndex={i} showTitle={false} />
-            </div>
-          ))}
+            );
+          })}
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

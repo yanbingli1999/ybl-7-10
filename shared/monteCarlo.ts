@@ -289,24 +289,34 @@ export function getRiskLevel(
   }
 
   if (preference === 'aggressive') {
-    if (mean < 0 && lossProbability > 0.5) {
+    if (mean < 0) {
+      if (lossProbability > 0.5) {
+        return {
+          level: '高风险',
+          color: 'text-monte-danger',
+          bg: 'bg-monte-danger/15',
+          border: 'border-monte-danger/40',
+          focusMetrics: ['期望均值', '亏损概率'],
+          explanation: `进取视角下，该项目均值仍为负（${formatNumber(mean)}），亏损概率 ${formatPercentage(lossProbability)}。期望为负的项目即使具备上行空间也不适合参与，存在系统性亏损风险。`,
+        };
+      }
       return {
-        level: '高风险',
-        color: 'text-monte-danger',
-        bg: 'bg-monte-danger/15',
-        border: 'border-monte-danger/40',
-        focusMetrics: ['期望均值', '上行空间'],
-        explanation: `进取视角下，该项目均值 ${formatNumber(mean)} 为负，不具备上行价值。即使关注增长潜力，负期望项目也不应参与。`,
+        level: '中高风险',
+        color: 'text-monte-warn',
+        bg: 'bg-monte-warn/15',
+        border: 'border-monte-warn/40',
+        focusMetrics: ['期望均值', '上行空间', '亏损概率'],
+        explanation: `进取视角下，该项目期望值为负（${formatNumber(mean)}），虽然亏损概率仅 ${formatPercentage(lossProbability)}，且上行空间 ${formatNumber(percentiles.p95)} 可能诱人，但期望为负意味着大量重复后必定亏损，需极度谨慎。`,
       };
     }
-    if (lossProbability > 0.5 || (mean > 0 && cv > 1.0)) {
+    if (lossProbability > 0.5 || cv > 1.0) {
       return {
         level: '中高风险',
         color: 'text-monte-warn',
         bg: 'bg-monte-warn/15',
         border: 'border-monte-warn/40',
         focusMetrics: ['期望均值', '变异系数', '上行空间'],
-        explanation: `进取视角下，该项目波动较大（变异系数 ${formatPercentage(cv / 100)}），但均值 ${formatNumber(mean)} 为正，上行空间到 ${formatNumber(percentiles.p95)}。高波动意味着高机会，需评估上行空间是否值得承担风险。`,
+        explanation: `进取视角下，该项目波动较大（变异系数 ${formatPercentage(cv)}），均值为正 ${formatNumber(mean)}，上行空间到 ${formatNumber(percentiles.p95)}。高波动意味着高机会，需评估上行空间是否值得承担${lossProbability > 0.5 ? '较高' : '当前'}下行风险。`,
       };
     }
     if (mean > 0 && cv > 0.5) {
